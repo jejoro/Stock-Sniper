@@ -15,6 +15,7 @@ st.markdown("""
     .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #3e4255; }
     div.stButton > button:first-child { background-color: #00ff00; color: black; font-weight: bold; width: 100%; }
     .info-box { background-color: #262730; padding: 10px; border-left: 5px solid #00ff00; font-size: 0.9em; }
+    .disclaimer { font-size: 0.8em; color: #666; margin-top: 50px; border-top: 1px solid #333; padding-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -30,29 +31,19 @@ def calculate_rsi(data, window=14):
 
 @st.cache_data(ttl=3600)
 def get_all_tickers_pro():
-    # 1. VERSUCH: Wikipedia (Live & Aktuell)
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        # Wir fügen einen User-Agent hinzu, um seltener blockiert zu werden
         table = pd.read_html(url, storage_options={'User-Agent': 'Mozilla/5.0'})
         sp500 = table[0]['Symbol'].tolist()
         sp500 = [t.replace('.', '-') for t in sp500]
-    except Exception as e:
-        # 2. VERSUCH: Hardcoded S&P 500 (Backup-Liste)
-        # Hier sind die wichtigsten S&P 500 Ticker hinterlegt
-        sp500 = [
-            "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "BRK-B", "LLY", "AVGO", "V", "TSLA", "UNH", "XOM", "JPM", "JNJ", "MA", "PG", "HD", "CVX", "ABBV", "MRK", "COST", "ADBE", "PEP", "KO", "TMO", "WMT", "BAC", "CSCO", "ACN", "ABT", "LIN", "ORCL", "MCD", "DIS", "AMD", "WFC", "DHR", "PM", "INTC", "TXN", "CAT", "VZ", "NEE", "AMGN", "PFE", "RTX", "HON", "LOW", "IBM", "UNP", "COP", "GE", "LMT", "DE", "SYK", "PLD", "GS", "ELV", "BKNG", "TJX", "MDLZ", "GILD", "ADP", "ISRG", "ADI", "VRTX", "REGN", "LRCX", "MMC", "C", "AMT", "HCA", "PANW", "SNPS", "CI", "MU", "SCHW", "FI", "CDNS", "CB", "MO", "ZTS", "BSX", "TMUS", "T", "ETN", "WM", "EQIX", "BDX", "ITW", "CVS", "SO", "CME", "MPC", "MCO", "SHW", "KLAC", "DUK", "ICE", "ORLY", "APH", "MAR", "AON", "MCK", "ADSK", "EOG", "CTAS", "SLB", "TGT", "PSX", "FDX", "NOC", "NXPI", "MSTR", "EMR", "PGR", "MET", "GD", "AIG", "HUM", "F", "GM", "COF", "MDT", "O", "TFC", "NSC", "D", "KMB", "SRE", "A", "ALL", "TRV", "DLR", "GPN", "AZO", "CPRT", "MSI", "STZ", "PCAR", "ROST", "WELL", "VLO", "KDP", "LVS", "BBY", "PAYX", "KR", "PRU", "CTVA", "HAL", "OXY", "MARA", "COIN", "EBAY", "HPQ", "STX", "WDC", "ANET", "FSLR", "ENPH", "PLTR", "DDOG", "U", "NET", "SNOW", "OKTA", "ZS", "WDAY", "CRM", "NOW", "TEAM", "MDB", "CRWD", "DD", "DOW", "CE", "EMN", "FMC", "IFF", "ALB", "MOS", "NUE", "STLD", "FCX", "NEM", "GOLD", "ABX", "PANW", "FTNT", "CHKP", "OKTA", "S", "MNDY", "SE", "MELI", "PDD", "JD", "BABA", "BIDU", "TCEHY", "NTES"
-        ]
-        # (Hinweis: Die Liste ist hier zur Lesbarkeit gekürzt, 
-        # deckt aber die wichtigsten Sektoren ab, falls Wiki offline ist)
-
-    # DAX Liste (Fix enthalten)
+    except:
+        sp500 = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"] # Kleiner Fallback
+    
     dax = ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BEI.DE", "BMW.DE", "BNR.DE", 
            "CBK.DE", "CON.DE", "1COV.DE", "DTG.DE", "DBK.DE", "DB1.DE", "DHL.DE", "DTE.DE", 
            "EOAN.DE", "FRE.DE", "FME.DE", "HNR1.DE", "HEI.DE", "HEN3.DE", "IFX.DE", "MBG.DE", 
            "MRK.DE", "MTX.DE", "MUV2.DE", "P911.DE", "PAH3.DE", "QIA.DE", "RHM.DE", "RWE.DE", 
            "SAP.DE", "SRT3.DE", "ENR.DE", "SIE.DE", "SHL.DE", "SY1.DE", "VOW3.DE", "VNA.DE"]
-    
     return list(set(sp500 + dax))
 
 # ==========================================
@@ -128,7 +119,8 @@ if st.button("🚀 VOLLSTÄNDIGEN MARKT-SCAN STARTEN"):
             results.append({
                 "Ticker": t, "Name": inf.get('longName', t)[:20], "Preis": round(cp, 2),
                 "RSI": round(rsi, 1), "Marge%": round(marge*100, 1), "ROE%": round(roe*100, 1),
-                "Trade_Score": t_score, "Invest_Score": i_score, "Status": status
+                "Trade_Score": t_score, "Invest_Score": i_score, "Status": status,
+                "Wachstum%": round(growth*100, 1)
             })
         except: continue
         if (i+1) % 10 == 0:
@@ -137,27 +129,46 @@ if st.button("🚀 VOLLSTÄNDIGEN MARKT-SCAN STARTEN"):
     if results:
         df = pd.DataFrame(results)
         st.success(f"Analyse abgeschlossen! (Abruf: {start_time})")
-        
+
+        # --- NEU: LEGENDE EXPANDER ---
+        with st.expander("📖 Hilfe: Kennzahlen, Grenzen & Status"):
+            l1, l2 = st.columns(2)
+            with l1:
+                st.markdown("""
+                **Kennzahlen & Grenzwerte:**
+                - **Marge (>12%):** Profitabilität. Je höher, desto krisenfester.
+                - **ROE (>15%):** Effizienz der Kapitalverwendung.
+                - **RSI (35-50):** Wir suchen Aktien, die kurz "Luft holen" (Pullback).
+                - **Invest_Score:** 100 = Perfekte fundamentale Qualität.
+                """)
+            with l2:
+                st.markdown("""
+                **Bezeichnungen & Status:**
+                - **🟢 PULLBACK:** Aktie ist im Aufwärtstrend, aber aktuell kurzfristig günstig.
+                - **Trade_Score:** 100 = Idealer technischer Zeitpunkt für Einstieg.
+                - **Kein Signal:** Aktie ist aktuell zu teuer (überhitzt) oder im Abwärtstrend.
+                """)
+
         tab1, tab2, tab3 = st.tabs(["📈 Trading", "💎 Investing", "📊 Alle Daten"])
         
         with tab1:
-            # Sicherheits-Check: Gibt es Pullbacks?
             trades = df[df['Status'] == "🟢 PULLBACK"]
             if not trades.empty:
                 st.dataframe(trades.sort_values("Trade_Score", ascending=False), hide_index=True)
-            else:
-                st.info("Aktuell keine Pullbacks nach deinen Kriterien gefunden.")
+            else: st.info("Keine Pullbacks aktuell.")
                 
         with tab2:
             invests = df[df['Invest_Score'] > 0]
             if not invests.empty:
                 st.dataframe(invests.sort_values("Invest_Score", ascending=False), hide_index=True)
-            else:
-                st.info("Keine Qualitäts-Aktien mit diesen Filtern gefunden.")
+            else: st.info("Keine Qualitäts-Aktien nach Filtern.")
 
         with tab3:
             st.dataframe(df, use_container_width=True)
+            
+        # Haftungsausschluss ganz unten
+        st.markdown('<div class="disclaimer">⚠️ <b>Haftungsausschluss:</b> Diese App dient nur Informationszwecken. Keine Anlageberatung. Aktieninvestments sind mit Risiken verbunden.</div>', unsafe_allow_html=True)
     else:
-        st.error("Keine Daten empfangen. Bitte Internetverbindung prüfen.")
+        st.error("Keine Daten empfangen.")
 else:
     st.info("Klicke auf den Button, um den Scan zu starten.")
