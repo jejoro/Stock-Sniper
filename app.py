@@ -6,14 +6,17 @@ import requests
 import io
 import re
 import cloudscraper
+import os
+import shutil
+import json
 
 # ==========================================
-# VERSION 5.14 (FULLY AUTOMATED PROXY SCRAPER)
+# VERSION 5.17 (UPDATED COMMODITY LEGEND)
 # ==========================================
 
 AV_KEY = "WB048V1B735CQQUN" # Dein persönlicher API Key
 
-st.set_page_config(page_title="Gemini Stock Sniper PRO v5.14", layout="wide", page_icon="🎯")
+st.set_page_config(page_title="Gemini Stock Sniper PRO v5.17", layout="wide", page_icon="🎯")
 
 # ==========================================
 # 1. DESIGN
@@ -23,7 +26,7 @@ st.markdown("""
     .block-container { padding-top: 1.5rem !important; }
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] { background-color: #0e1117 !important; }
     [data-testid="stSidebar"] { background-color: #161a22 !important; width: 300px !important; }
-    .stApp, p, label, h1, h2, h3, span { color: #cfd8dc !important; }
+    .stApp, p, label, h1, h2, h3, span, a { color: #cfd8dc !important; }
     div.stButton > button:first-child { 
         background-color: #89abe3 !important; color: #0e1117 !important; 
         font-weight: bold !important; width: 100% !important; border-radius: 6px !important;
@@ -100,15 +103,21 @@ def get_av_yield(maturity="10year"):
     return None
 
 @st.cache_data(ttl=43200)
-def get_live_macro_data():
+def _fetch_api_macro_data():
     data = {"PMI_USA": None, "PMI_DAX": None, "PMI_EM": None, "ZEW_EU": None}
     
-    # 1. Wir tarnen das Skript als Google-Bot (Cloudflare winkt Google oft durch wegen SEO)
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-    }
+    try:
+        url_av_pmi = f"https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=I:USPMI&apikey={AV_KEY}"
+        res_av = requests.get(url_av_pmi, timeout=8)
+        av_json = res_av.json()
+        if "Monthly Time Series" in av_json:
+            latest_month = list(av_json["Monthly Time Series"].keys())[0]
+            val = av_json["Monthly Time Series"][latest_month]["4. close"]
+            data["PMI_USA"] = float(val)
+    except: pass
+
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
     
-    # 2. Wir definieren mehrere Wege, um an die Seite zu kommen (Direkt + 2 Public Proxies)
     urls_pmi = [
         "https://tradingeconomics.com/country-list/manufacturing-pmi",
         "https://api.codetabs.com/v1/proxy/?quest=https://tradingeconomics.com/country-list/manufacturing-pmi",
@@ -124,7 +133,6 @@ def get_live_macro_data():
                 break
         except: pass
 
-    # Werte auslesen mit exakt deinem HTML-Muster
     if html_pmi:
         match_us = re.search(r'United States\s*</a>\s*</td>\s*<td[^>]*>\s*([\d\.]+)\s*</td>', html_pmi, re.IGNORECASE)
         if match_us: data['PMI_USA'] = float(match_us.group(1))
@@ -141,7 +149,6 @@ def get_live_macro_data():
                 w_sum += w
         if w_sum > 0: data['PMI_EM'] = round(em_val / w_sum, 1)
 
-    # Das Gleiche für den ZEW Index
     urls_zew = [
         "https://tradingeconomics.com/country-list/zew-economic-sentiment-index",
         "https://api.codetabs.com/v1/proxy/?quest=https://tradingeconomics.com/country-list/zew-economic-sentiment-index",
@@ -151,20 +158,40 @@ def get_live_macro_data():
         try:
             res = requests.get(u, headers=headers, timeout=10)
             if res.status_code == 200 and "Germany" in res.text:
-                # Beachtet auch negative ZEW Werte ([\-\d\.]+)
                 match_zew = re.search(r'Germany\s*</a>\s*</td>\s*<td[^>]*>\s*([\-\d\.]+)\s*</td>', res.text, re.IGNORECASE)
                 if match_zew:
                     data['ZEW_EU'] = float(match_zew.group(1))
                     break
         except: pass
 
-    # Letztes Auffangnetz: Fallback auf Cloudscraper
     if data["PMI_USA"] is None:
         try:
             scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
             res = scraper.get("https://tradingeconomics.com/country-list/manufacturing-pmi", timeout=10)
             match_us = re.search(r'United States\s*</a>\s*</td>\s*<td[^>]*>\s*([\d\.]+)\s*</td>', res.text, re.IGNORECASE)
             if match_us: data['PMI_USA'] = float(match_us.group(1))
+        except: pass
+
+    return data
+
+def get_live_macro_data():
+    data = _fetch_api_macro_data()
+    backup_file = "pmi_backup.json"
+    
+    if os.path.exists(backup_file):
+        try:
+            with open(backup_file, "r") as f:
+                cached_data = json.load(f)
+            if data["PMI_USA"] is None and cached_data.get("PMI_USA"): data["PMI_USA"] = cached_data["PMI_USA"]
+            if data["PMI_DAX"] is None and cached_data.get("PMI_DAX"): data["PMI_DAX"] = cached_data["PMI_DAX"]
+            if data["PMI_EM"] is None and cached_data.get("PMI_EM"):  data["PMI_EM"] = cached_data["PMI_EM"]
+            if data["ZEW_EU"] is None and cached_data.get("ZEW_EU"):  data["ZEW_EU"] = cached_data["ZEW_EU"]
+        except: pass
+        
+    if data["PMI_USA"] is not None:
+        try:
+            with open(backup_file, "w") as f:
+                json.dump(data, f)
         except: pass
 
     return data
@@ -204,11 +231,24 @@ def get_val(ticker):
     except: pass
     return None
 
+def get_commodity_data(ticker):
+    try:
+        t = yf.Ticker(ticker)
+        d = t.history(period="1mo")
+        if not d.empty and len(d) >= 2:
+            cp = float(d['Close'].iloc[-1])
+            prev_p = float(d['Close'].iloc[-2])
+            sma20 = float(d['Close'].rolling(20).mean().iloc[-1])
+            pct_change = ((cp / prev_p) - 1) * 100
+            return cp, pct_change, sma20
+    except: pass
+    return None, None, None
+
 # ==========================================
 # 4. SIDEBAR (MARKTEINSTUFUNG HOLISTIC)
 # ==========================================
 with st.sidebar:
-    st.title("🎯 Sniper v5.14")
+    st.title("🎯 Sniper v5.17")
     
     st.markdown('<hr style="margin: 0px 0 10px 0; border: none; border-top: 1px solid #2d3239;">', unsafe_allow_html=True)
     st.markdown("### 🛡️ Markteinstufung")
@@ -312,17 +352,18 @@ with st.sidebar:
     else:
         st.markdown('<div class="status-box error-box">EM-Markt: Daten N/A</div>', unsafe_allow_html=True)
 
-    # ---- ROHSTOFFE & ZINSEN ----
+    # ---- ROHSTOFFE & ZINSEN (Dynamisiert) ----
     st.markdown('<div class="reg-header">📈 Zinsen & Rohstoffe</div>', unsafe_allow_html=True)
     
     tnx = get_val("^TNX") or get_av_yield("10year")
     t2y = get_val("^IRX") or get_av_yield("3month")
-    gold = get_val("GC=F")
-    oil = get_val("CL=F")
+    
+    gold_cp, gold_pct, gold_sma = get_commodity_data("GC=F")
+    oil_cp, oil_pct, oil_sma = get_commodity_data("CL=F")
     
     tnx_val = f"{tnx:.2f}%" if tnx is not None else "N/A"
-    gold_val = f"{gold:,.2f}" if gold is not None else "N/A"
-    oil_val = f"{oil:.2f}" if oil is not None else "N/A"
+    gold_val = f"{gold_cp:,.2f} ({gold_pct:+.1f}%)" if gold_cp is not None else "N/A"
+    oil_val = f"{oil_cp:.2f} ({oil_pct:+.1f}%)" if oil_cp is not None else "N/A"
     
     zins_status = "N/A"
     if tnx is not None and t2y is not None:
@@ -333,10 +374,24 @@ with st.sidebar:
     st.markdown(f'<div class="sidebar-metric"><span class="sidebar-label">Gold (USD)</span><span class="sidebar-value">{gold_val}</span></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sidebar-metric"><span class="sidebar-label">Öl WTI (USD)</span><span class="sidebar-value">{oil_val}</span></div>', unsafe_allow_html=True)
 
+    if gold_cp is not None and gold_pct is not None:
+        if gold_pct > 0.5 or (gold_sma is not None and gold_cp > gold_sma):
+            st.markdown('<div class="status-box warning-box">Rohstoffe: Gold stark (Sicherheit)</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="status-box success-box">Rohstoffe: Gold ruhig</div>', unsafe_allow_html=True)
+
+    if oil_cp is not None and oil_pct is not None:
+        if oil_cp >= 85 or oil_pct > 1.5:
+            st.markdown('<div class="status-box error-box">Inflation: Ölpreis hoch (Risiko)</div>', unsafe_allow_html=True)
+        elif oil_cp <= 75 or oil_pct < -1.0:
+            st.markdown('<div class="status-box success-box">Inflation: Öl günstig (Entspannung)</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="status-box info-box">Inflation: Öl neutral</div>', unsafe_allow_html=True)
+
 # ==========================================
 # 5. HAUPTSEITE & VOLLSTÄNDIGE AGENDA
 # ==========================================
-st.title("Gemini Stock Sniper PRO v5.14")
+st.title("Gemini Stock Sniper PRO v5.17")
 st.markdown("<br>", unsafe_allow_html=True)
 
 with st.expander("📖 Strategie-Guide & Agenda", expanded=True):
@@ -351,7 +406,9 @@ with st.expander("📖 Strategie-Guide & Agenda", expanded=True):
         - **ZEW (Konjunkturerwartung DAX):** Spiegelt die Stimmung der institutionellen Anleger wider. **Regel:**<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**✅ ZEW > PMI** ➔ Optimisten in der Überzahl.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚠️ ZEW < PMI** ➔ Pessimisten dominieren.
         - **DXY (US-Dollar Index):** Misst die Stärke des US-Dollars gegen andere Leitwährungen (Basiswert 100). Er ist der Taktgeber für die Emerging Markets.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**✅ < 100:** Schwacher Dollar. Positiv für Schwellenländer, da deren Kredite günstiger werden und Kapital dorthin fließt.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚖️ 100 - 105:** Normales bis belastendes Niveau.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚠️ > 105:** Starker Dollar. Kritisch (Risiko), da es Kapital aus den Schwellenländern in die USA absaugt.
         - **Zinskurve (10J/3M):** Vergleicht langfristige (10 Jahre) mit kurzfristigen (3 Monate) US-Staatsanleihen.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**✅ Normal:** 10J-Zinsen > 3M-Zinsen. Der gesunde Wirtschaftszustand (Lange Bindung = mehr Zinsen).<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚠️ Invers:** 3M-Zinsen > 10J-Zinsen. Ein klassisches Rezessions-Warnsignal. Der Markt preist schwere Zeiten ein.
-        - **Rohstoffe:** Gold steigt bei Angst; Öl ist ein wichtiger Inflations-Treiber.
+        - **Rohstoffe & Inflation:** Die Dynamik von Gold und Öl wird laufend bewertet.
+          - **Gold (Angstbarometer):** Investoren fliehen bei Unsicherheit in Gold.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚠️ Stark (Sicherheit):** Preis steigt heute > 0.5% oder notiert über seinem mittelfristigen 20-Tage-Trend.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**✅ Ruhig:** Es ist kein akuter Fluchttrend erkennbar.
+          - **Öl WTI (Inflations-Treiber):** Bestimmt massiv die globalen Inflations- und Zinserwartungen.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚠️ Hoch (Risiko):** Preis >= 85 USD oder plötzlicher Tagesanstieg > 1.5%. Gift für die Wirtschaft.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**✅ Günstig (Entspannung):** Preis <= 75 USD oder starker Tagesrückgang < -1.0%. Entlastet die Margen der Unternehmen.<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**⚖️ Neutral:** Preis bewegt sich unauffällig zwischen 75 und 85 USD.
         """, unsafe_allow_html=True)
         
     with t2:
